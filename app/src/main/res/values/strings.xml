@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">R08 Ring Bridge</string>
+    <string name="service_description">Reads taps and slides from the R08 ring only (all other keyboards and devices are ignored), recognizes multi-tap gestures, and sends them to the MemoMind glasses as a Bluetooth keyboard.</string>
+</resources>
