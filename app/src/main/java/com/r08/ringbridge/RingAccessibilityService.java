@@ -16,7 +16,7 @@ public class RingAccessibilityService extends AccessibilityService {
     @Override
     protected void onServiceConnected() {
         BridgeCore core = BridgeCore.get(this);
-        core.accessibilityConnected = true;
+        core.onServiceState(true);
         if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
                 && checkSelfPermission(Manifest.permission.BLUETOOTH_ADVERTISE) == PackageManager.PERMISSION_GRANTED) {
             core.startHid();
@@ -39,10 +39,7 @@ public class RingAccessibilityService extends AccessibilityService {
 
     @Override
     public void onDestroy() {
-        BridgeCore core = BridgeCore.get(this);
-        core.accessibilityConnected = false;
-        core.resetRecognizer();
-        core.onHidStateChanged();
+        BridgeCore.get(this).onServiceState(false);
         super.onDestroy();
     }
 }

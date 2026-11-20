@@ -13,10 +13,12 @@ import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -61,6 +63,20 @@ public class MainActivity extends Activity {
         button("3. Start / restart HID advertising", new View.OnClickListener() {
             @Override public void onClick(View v) {
                 if (hasBluetooth()) { core.hid.stop(); core.startHid(); } else requestBluetooth();
+            }
+        });
+
+        Switch screenOff = new Switch(this);
+        screenOff.setText("Work while the phone is locked (takes media buttons when the screen is off)");
+        screenOff.setChecked(core.screenOffMode());
+        screenOff.setPadding(0, dp(8), 0, dp(8));
+        screenOff.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override public void onCheckedChanged(CompoundButton b, boolean on) { core.setScreenOffMode(on); }
+        });
+        root.addView(screenOff);
+        button("4. Battery: set R08 Ring Bridge to \"Unrestricted\" / not optimized", new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
             }
         });
 
@@ -111,6 +127,7 @@ public class MainActivity extends Activity {
     private void refresh() {
         status.setText("Bluetooth permission: " + (hasBluetooth() ? "yes" : "NO")
                 + "\nRing service (Accessibility): " + (core.accessibilityConnected ? "on" : "OFF")
+                + "\nLocked/screen-off mode: " + (core.screenOffActive() ? "active" : "off")
                 + "\nGlasses link: " + core.hid.state
                 + "\nReady to send: " + (core.hid.isReady() ? "yes" : "no")
                 + "\nLast ring key: " + core.lastKey

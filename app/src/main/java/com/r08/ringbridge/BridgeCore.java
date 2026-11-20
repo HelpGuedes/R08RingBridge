@@ -1,9 +1,13 @@
 package com.r08.ringbridge;
 
+import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 
@@ -21,6 +25,8 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
     final HidPeripheral hid;
     private final GestureRecognizer recognizer;
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final MediaKeyCatcher mediaKeys;
+    private final PowerManager.WakeLock wakeLock;
 
     volatile boolean accessibilityConnected;
     volatile String lastKey = "-";
@@ -31,6 +37,23 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
         prefs = app.getSharedPreferences("ring_bridge", Context.MODE_PRIVATE);
         hid = new HidPeripheral(app, this, prefs);
         recognizer = new GestureRecognizer(handler, this, this);
+        mediaKeys = new MediaKeyCatcher(app, this, handler);
+        PowerManager pm = (PowerManager) app.getSystemService(Context.POWER_SERVICE);
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RingBridge:gesture");
+        wakeLock.setReferenceCounted(false);
+        // When the screen turns off, media keys stop reaching the Accessibility service:
+        // take over media buttons so the ring keeps working while the phone is locked.
+        BroadcastReceiver screenOff = new BroadcastReceiver() {
+            @Override public void onReceive(Context c, Intent intent) {
+                if (screenOffMode() && accessibilityConnected) mediaKeys.enable();
+            }
+        };
+        IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            app.registerReceiver(screenOff, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            app.registerReceiver(screenOff, filter);
+        }
     }
 
     // ------------------------------------------------------------------ settings
@@ -59,6 +82,27 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
 
     String ringFilter() { return prefs.getString("ring_filter", "R08"); }
 
+    boolean screenOffMode() { return prefs.getBoolean("screen_off_mode", true); }
+
+    void setScreenOffMode(boolean on) {
+        prefs.edit().putBoolean("screen_off_mode", on).apply();
+        if (on && accessibilityConnected) mediaKeys.enable(); else mediaKeys.disable();
+        notifyUi();
+    }
+
+    boolean screenOffActive() { return mediaKeys.isEnabled(); }
+
+    /** Called when the Accessibility service starts or stops. */
+    void onServiceState(boolean connected) {
+        accessibilityConnected = connected;
+        if (connected && screenOffMode()) mediaKeys.enable();
+        if (!connected) {
+            mediaKeys.disable();
+            recognizer.reset();
+        }
+        notifyUi();
+    }
+
     @Override public long windowMs() { return prefs.getInt("window_ms", 350); }
 
     @Override public boolean isMapped(String gesture) { return actionFor(gesture) != Action.NONE; }
@@ -67,6 +111,11 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
 
     /** Called by the accessibility service for every key event. Returns true to swallow it. */
     boolean handleKey(KeyEvent event) {
+        return handleKey(event, "screen on");
+    }
+
+    /** Ring keys from either path (Accessibility = screen on, media session = screen off). */
+    boolean handleKey(KeyEvent event, String path) {
         InputDevice device = event.getDevice();
         String name = device == null ? "" : device.getName();
         String filter = ringFilter().trim();
@@ -75,7 +124,9 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
         }
         int kind = classify(event.getKeyCode());
         if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
-            lastKey = KeyEvent.keyCodeToString(event.getKeyCode()) + " from " + name;
+            // keep the CPU awake long enough for the tap window and any held key to finish
+            wakeLock.acquire(windowMs() + holdMs() + 1500);
+            lastKey = KeyEvent.keyCodeToString(event.getKeyCode()) + " from " + name + " (" + path + ")";
             if (kind == 1) recognizer.onTap();
             else if (kind == 2) recognizer.onSlide(true);
             else if (kind == 3) recognizer.onSlide(false);
