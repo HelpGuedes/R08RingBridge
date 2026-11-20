@@ -1,5 +1,6 @@
 package com.r08.ringbridge;
 
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.media.AudioAttributes;
@@ -53,7 +54,9 @@ final class MediaKeyCatcher {
                             | PlaybackState.ACTION_SKIP_TO_PREVIOUS)
                     .setState(PlaybackState.STATE_PLAYING, 0, 1f)
                     .build());
+            session.setMediaButtonBroadcastReceiver(new ComponentName(context, MediaButtonReceiver.class));
             session.setActive(true);
+            core.log("media session created");
         }
         claimMediaButtons();
     }
@@ -88,6 +91,7 @@ final class MediaKeyCatcher {
                     .build();
             track.write(new short[frames], 0, frames);
             track.play();
+            core.log("claimed media buttons");
             handler.postDelayed(new Runnable() {
                 @Override public void run() {
                     try {
@@ -99,6 +103,7 @@ final class MediaKeyCatcher {
             }, 400);
         } catch (RuntimeException e) {
             Log.w(TAG, "could not play silence", e);
+            core.log("could not claim media buttons: " + e.getClass().getSimpleName());
         }
     }
 

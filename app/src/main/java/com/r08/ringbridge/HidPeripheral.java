@@ -32,11 +32,12 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * The phone as a BLE HID keyboard (HOGP device) for the MemoMind glasses.
+ * The phone as a BLE HID device (HOGP) for the MemoMind glasses, with two input reports:
  *
- * One input report (ID 1), 1 byte, 8 one-bit keys:
+ * Report 1, keyboard, 1 byte, 8 one-bit keys:
  *   bit0 Up 0x52, bit1 Down 0x51, bit2 Left 0x50, bit3 Right 0x4F,
  *   bit4 Enter 0x28, bit5 Escape 0x29, bit6 Keypad Enter 0x58, bit7 Space 0x2C
+ * Report 2, gamepad, 2 bytes: buttons 1-12 (bits 0-11) + 4 padding bits.
  * One-bit variable fields keep it inside the glasses' parser limits (16 usages per field).
  */
 final class HidPeripheral {
@@ -60,12 +61,13 @@ final class HidPeripheral {
     static final UUID BATTERY_SERVICE = uuid16(0x180F);
     static final UUID BATTERY_LEVEL = uuid16(0x2A19);
 
-    static final byte REPORT_ID = 1;
+    static final byte KEYBOARD_REPORT_ID = 1;
+    static final byte GAMEPAD_REPORT_ID = 2;
     static final byte[] REPORT_MAP_BYTES = {
             0x05, 0x01,             // Usage Page (Generic Desktop)
             0x09, 0x06,             // Usage (Keyboard)
             (byte) 0xA1, 0x01,      // Collection (Application)
-            (byte) 0x85, REPORT_ID, //   Report ID (1)
+            (byte) 0x85, KEYBOARD_REPORT_ID, // Report ID (1)
             0x05, 0x07,             //   Usage Page (Keyboard/Keypad)
             0x09, 0x52,             //   Usage (Up Arrow)        bit0
             0x09, 0x51,             //   Usage (Down Arrow)      bit1
@@ -80,11 +82,30 @@ final class HidPeripheral {
             0x75, 0x01,             //   Report Size (1)
             (byte) 0x95, 0x08,      //   Report Count (8)
             (byte) 0x81, 0x02,      //   Input (Data, Variable, Absolute)
+            (byte) 0xC0,            // End Collection
+
+            0x05, 0x01,             // Usage Page (Generic Desktop)
+            0x09, 0x05,             // Usage (Gamepad)
+            (byte) 0xA1, 0x01,      // Collection (Application)
+            (byte) 0x85, GAMEPAD_REPORT_ID, // Report ID (2)
+            0x05, 0x09,             //   Usage Page (Button)
+            0x19, 0x01,             //   Usage Minimum (Button 1)
+            0x29, 0x0C,             //   Usage Maximum (Button 12)
+            0x15, 0x00,             //   Logical Minimum (0)
+            0x25, 0x01,             //   Logical Maximum (1)
+            0x75, 0x01,             //   Report Size (1)
+            (byte) 0x95, 0x0C,      //   Report Count (12)
+            (byte) 0x81, 0x02,      //   Input (Data, Variable, Absolute)
+            0x75, 0x01,             //   Report Size (1)
+            (byte) 0x95, 0x04,      //   Report Count (4)
+            (byte) 0x81, 0x03,      //   Input (Constant) padding
             (byte) 0xC0             // End Collection
     };
 
     interface Listener {
         void onHidStateChanged();
+
+        void onHidLog(String message);
     }
 
     private final Context context;
@@ -95,11 +116,13 @@ final class HidPeripheral {
     private BluetoothManager manager;
     private BluetoothGattServer server;
     private BluetoothLeAdvertiser advertiser;
-    private BluetoothGattCharacteristic inputReport;
+    private BluetoothGattCharacteristic keyboardReport;
+    private BluetoothGattCharacteristic gamepadReport;
     private final Map<BluetoothGattCharacteristic, byte[]> values = new IdentityHashMap<>();
     private final ArrayDeque<BluetoothGattService> pendingServices = new ArrayDeque<>();
     private final Set<BluetoothDevice> connected = new HashSet<>();
-    private final Set<BluetoothDevice> subscribed = new HashSet<>();
+    private final Set<BluetoothDevice> subscribed = new HashSet<>();        // keyboard report
+    private final Set<BluetoothDevice> subscribedPad = new HashSet<>();     // gamepad report
     private boolean advertising;
     private boolean nameInScanResponse;
     private long busyUntil;
@@ -151,6 +174,7 @@ final class HidPeripheral {
         server = null;
         connected.clear();
         subscribed.clear();
+        subscribedPad.clear();
         setState("stopped");
     }
 
@@ -160,37 +184,56 @@ final class HidPeripheral {
 
     // ------------------------------------------------------------------ sending keys
 
-    /** Press one bit for holdMs, then release. Presses never overlap. */
-    void sendKey(final int bit, final int holdMs) {
-        if (bit < 0 || bit > 7) return;
+    /** Press one button of report 1 (keyboard) or 2 (gamepad) for holdMs, then release. Presses never overlap. */
+    void sendKey(final int report, final int bit, final int holdMs) {
+        final boolean pad = report == GAMEPAD_REPORT_ID;
+        if (bit < 0 || bit > (pad ? 11 : 7)) return;
         long now = SystemClock.uptimeMillis();
         long pressAt = Math.max(now, busyUntil);
         long releaseAt = pressAt + Math.max(30, holdMs);
         busyUntil = releaseAt + 60;
         handler.postAtTime(new Runnable() {
-            @Override public void run() { notifyReport(new byte[]{(byte) (1 << bit)}); }
+            @Override public void run() {
+                if (pad) notifyReport(true, new byte[]{(byte) ((1 << bit) & 0xFF), (byte) ((1 << bit) >> 8)});
+                else notifyReport(false, new byte[]{(byte) (1 << bit)});
+            }
         }, pressAt);
         handler.postAtTime(new Runnable() {
-            @Override public void run() { notifyReport(new byte[]{0}); }
+            @Override public void run() { notifyReport(pad, pad ? new byte[]{0, 0} : new byte[]{0}); }
         }, releaseAt);
     }
 
     @SuppressWarnings("deprecation")
-    private void notifyReport(byte[] value) {
-        if (server == null || inputReport == null) return;
-        values.put(inputReport, value);
-        for (BluetoothDevice d : new HashSet<>(subscribed)) {
+    private void notifyReport(boolean pad, byte[] value) {
+        BluetoothGattCharacteristic ch = pad ? gamepadReport : keyboardReport;
+        if (server == null || ch == null) {
+            if (listener != null) listener.onHidLog("NOT sent: HID server not running");
+            return;
+        }
+        values.put(ch, value);
+        Set<BluetoothDevice> targets = new HashSet<>(pad ? subscribedPad : subscribed);
+        boolean press = false;
+        for (byte b : value) press |= b != 0;
+        if (listener != null && press) {
+            listener.onHidLog(targets.isEmpty() ? "NOT sent: glasses not subscribed"
+                    : "sent " + (pad ? "gamepad" : "key") + " to glasses");
+        }
+        for (BluetoothDevice d : targets) {
             try {
                 if (Build.VERSION.SDK_INT >= 33) {
-                    server.notifyCharacteristicChanged(d, inputReport, false, value);
+                    server.notifyCharacteristicChanged(d, ch, false, value);
                 } else {
-                    inputReport.setValue(value);
-                    server.notifyCharacteristicChanged(d, inputReport, false);
+                    ch.setValue(value);
+                    server.notifyCharacteristicChanged(d, ch, false);
                 }
             } catch (SecurityException e) {
                 setState("Missing Bluetooth permission");
             }
         }
+    }
+
+    boolean isGamepadReady() {
+        return !subscribedPad.isEmpty();
     }
 
     // ------------------------------------------------------------------ GATT database
@@ -215,17 +258,26 @@ final class HidPeripheral {
                 BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED | BluetoothGattCharacteristic.PERMISSION_WRITE_ENCRYPTED,
                 new byte[]{0x01})); // report protocol
 
-        inputReport = chr(REPORT,
-                BluetoothGattCharacteristic.PROPERTY_READ | BluetoothGattCharacteristic.PROPERTY_NOTIFY,
-                BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED, new byte[]{0});
-        BluetoothGattDescriptor cccd = new BluetoothGattDescriptor(CCCD,
-                BluetoothGattDescriptor.PERMISSION_READ_ENCRYPTED | BluetoothGattDescriptor.PERMISSION_WRITE_ENCRYPTED);
-        BluetoothGattDescriptor ref = new BluetoothGattDescriptor(REPORT_REFERENCE,
-                BluetoothGattDescriptor.PERMISSION_READ_ENCRYPTED);
-        inputReport.addDescriptor(cccd);
-        inputReport.addDescriptor(ref);
-        s.addCharacteristic(inputReport);
+        keyboardReport = inputReportCharacteristic(new byte[]{0});
+        gamepadReport = inputReportCharacteristic(new byte[]{0, 0});
+        s.addCharacteristic(keyboardReport);
+        s.addCharacteristic(gamepadReport);
         return s;
+    }
+
+    private BluetoothGattCharacteristic inputReportCharacteristic(byte[] initial) {
+        BluetoothGattCharacteristic c = chr(REPORT,
+                BluetoothGattCharacteristic.PROPERTY_READ | BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+                BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED, initial);
+        c.addDescriptor(new BluetoothGattDescriptor(CCCD,
+                BluetoothGattDescriptor.PERMISSION_READ_ENCRYPTED | BluetoothGattDescriptor.PERMISSION_WRITE_ENCRYPTED));
+        c.addDescriptor(new BluetoothGattDescriptor(REPORT_REFERENCE,
+                BluetoothGattDescriptor.PERMISSION_READ_ENCRYPTED));
+        return c;
+    }
+
+    private boolean isGamepad(BluetoothGattDescriptor d) {
+        return d.getCharacteristic() == gamepadReport;
     }
 
     private BluetoothGattService buildDeviceInfoService() {
@@ -333,12 +385,16 @@ final class HidPeripheral {
                 @Override public void run() {
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
                         connected.add(device);
-                        if (wasSubscribed(device)) subscribed.add(device); // bonded hosts may skip the CCCD write
+                        if (wasSubscribed(device)) { // bonded hosts may skip the CCCD writes
+                            subscribed.add(device);
+                            subscribedPad.add(device);
+                        }
                         stopAdvertising();
                         setState("connected: " + describe(device));
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                         connected.remove(device);
                         subscribed.remove(device);
+                        subscribedPad.remove(device);
                         setState("disconnected, advertising again");
                         if (connected.isEmpty()) startAdvertising();
                     }
@@ -358,9 +414,10 @@ final class HidPeripheral {
                                             BluetoothGattDescriptor descriptor) {
             byte[] v;
             if (CCCD.equals(descriptor.getUuid())) {
-                v = subscribed.contains(device) ? new byte[]{1, 0} : new byte[]{0, 0};
+                Set<BluetoothDevice> set = isGamepad(descriptor) ? subscribedPad : subscribed;
+                v = set.contains(device) ? new byte[]{1, 0} : new byte[]{0, 0};
             } else if (REPORT_REFERENCE.equals(descriptor.getUuid())) {
-                v = new byte[]{REPORT_ID, 0x01}; // input report
+                v = new byte[]{isGamepad(descriptor) ? GAMEPAD_REPORT_ID : KEYBOARD_REPORT_ID, 0x01}; // input report
             } else {
                 v = new byte[0];
             }
@@ -373,12 +430,18 @@ final class HidPeripheral {
                                              boolean responseNeeded, int offset, final byte[] value) {
             if (CCCD.equals(descriptor.getUuid())) {
                 final boolean on = value != null && value.length > 0 && (value[0] & 0x01) != 0;
+                final boolean pad = isGamepad(descriptor);
                 handler.post(new Runnable() {
                     @Override public void run() {
-                        if (on) subscribed.add(device); else subscribed.remove(device);
-                        rememberSubscription(device, on);
-                        setState(on ? "READY: glasses subscribed (" + describe(device) + ")"
-                                : "glasses unsubscribed");
+                        Set<BluetoothDevice> set = pad ? subscribedPad : subscribed;
+                        if (on) set.add(device); else set.remove(device);
+                        if (!pad) rememberSubscription(device, on);
+                        if (!pad) {
+                            setState(on ? "READY: glasses subscribed (" + describe(device) + ")"
+                                    : "glasses unsubscribed");
+                        } else {
+                            setState(state); // refresh UI (gamepad subscription changed)
+                        }
                     }
                 });
             }
@@ -434,8 +497,12 @@ final class HidPeripheral {
     }
 
     private void setState(String s) {
+        boolean changed = !s.equals(state);
         state = s;
         Log.i(TAG, s);
-        if (listener != null) listener.onHidStateChanged();
+        if (listener != null) {
+            if (changed) listener.onHidLog("glasses link: " + s);
+            listener.onHidStateChanged();
+        }
     }
 }

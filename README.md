@@ -35,6 +35,11 @@ There are two layers:
 Every gesture can be reassigned in the bridge app (Gesture → glasses action). Gestures you leave
 unassigned add no delay to the others.
 
+Besides the keyboard keys, every gesture can also send a **gamepad button** (A, B, X, Y, L1, R1,
+L2, R2, Select, Start, L3, R3). The bridge has a second HID report, a standard 12-button gamepad,
+so the glasses see these as gamepad buttons. Record them in the MemoMind app like any other key,
+or use them in apps that read gamepad input. The "Pad A/B/X/Y" test buttons send them directly.
+
 ### Example mapping (the setup this project was built with)
 
 | Ring | Mapped in the MemoMind app to | Result on the glasses |
@@ -51,6 +56,10 @@ Download the APK from this repository's **Actions** tab (latest successful run �
 artifact `R08-Ring-Bridge-debug-APK` → `app-debug.apk`), copy it to the phone and install it
 (allow "Install unknown apps"). Android 12 or newer.
 
+**Updating:** builds are signed with the fixed key in `app/ringbridge-debug.keystore`, so a new
+APK installs over the old one as an update and keeps your settings. (Builds from before this key
+was added were signed with a random key: uninstall those once.)
+
 ### 2. Connect the ring to the phone
 
 1. Put the ring in **Music** touch mode (QRing → Touch control → Music).
@@ -65,7 +74,9 @@ artifact `R08-Ring-Bridge-debug-APK` → `app-debug.apk`), copy it to the phone 
 2. **Enable the ring service:** Settings → Accessibility → R08 Ring Bridge → On.
    If Android says **"Restricted setting"**: Settings → Apps → R08 Ring Bridge → ⋮ (top right) →
    **Allow restricted settings**, then enable it again.
-3. **Start / restart HID advertising.**
+3. **Start / restart the bridge.** This starts the HID advertising and a background service with a
+   small permanent notification ("Ring → glasses bridge running"), which keeps the bridge alive
+   while the phone is locked. Allow notifications when asked.
 4. Check the status at the top: slide the ring and **Last ring key** should show something like
    `KEYCODE_MEDIA_NEXT from R08_xxxx (screen on)`. If it stays `-`, set **Ring device name contains**
    to part of the name the ring has in Android's Bluetooth settings.
@@ -100,9 +111,21 @@ gestures, which is handy for testing without the ring.
 
 With the screen off, Android sends media keys to the "media button" app (normally your music
 player) instead of the Accessibility service. The **"Work while the phone is locked"** switch
-(on by default) handles this: the bridge keeps a media session, and when the screen turns off it
-plays a quarter second of silence so Android routes media buttons to it. Only keys from the ring
-are used; **Last ring key** shows `(screen off)` for them.
+(on by default) handles this: the bridge runs as a foreground service, keeps a media session and a
+media button receiver, and when the screen turns off it plays a quarter second of silence so
+Android routes media buttons to it. Only keys from the ring are used; they show up as
+`(screen off)` or `(media receiver)` in the event log.
+
+**Checking it:** lock the phone, use the ring, unlock and open the app. The **Event log** shows,
+in order: `screen off`, `claimed media buttons`, then for each ring event `key ...`,
+`gesture ... -> ...` and `sent key to glasses`. Where the chain stops tells you what failed:
+
+| Last entry you see | Meaning |
+|---|---|
+| `screen off` but no `key ...` | The ring's keys did not reach the app while locked (another app took the media buttons, or the system dropped them) |
+| `key ...` but no `gesture ...` | Only possible with combos assigned: the gesture is still waiting for the buffer |
+| `NOT sent: glasses not subscribed` | The glasses' link to the phone dropped |
+| `sent key to glasses` but nothing happens | The glasses received it; check the MemoMind mapping |
 
 Side effect: while the screen is off, your headphones' play/pause/next buttons also go to the
 bridge, which ignores them. If you start music in another app after the screen is already off,
@@ -114,6 +137,7 @@ you prefer the old behavior (ring works only with the screen on).
 | Setting | Default | What it does |
 |---|---|---|
 | Tap window | 350 ms | Maximum gap between taps of one multi-tap |
+| Combo buffer | 900 ms | How long a tap waits for a slide ("tap, then slide") and a slide for a tap ("slide, then tap"). Only used when such a combo is assigned |
 | Long-press hold | 2100 ms | How long held actions keep the key down |
 | Ring device name contains | `R08` | Only input devices with this in their name are captured; everything else passes through |
 | Work while the phone is locked | on | Takes media buttons while the screen is off (see above) |
@@ -122,14 +146,22 @@ you prefer the old behavior (ring works only with the screen on).
 
 - **Taps or slides also control the phone's music:** the Accessibility service is off, or the ring's
   name does not match the filter.
-- **Ring does nothing while the phone is locked:** check the "Work while the phone is locked"
-  switch is on and the app's battery setting is *Unrestricted*. Lock the phone once more (the
-  bridge claims media buttons at the moment the screen turns off).
+- **Ring does nothing while the phone is locked:** check that the notification "Ring → glasses
+  bridge running" is there, the "Work while the phone is locked" switch is on and the app's
+  battery setting is *Unrestricted*. Then read the event log (see "Using it with the phone
+  locked").
 - **Ring stops responding after a while:** QRing (or another device) took over the ring. Force-stop
   QRing and reconnect the ring in Android's Bluetooth settings.
 - **Glasses don't see the phone when scanning:** press "Start / restart HID advertising". If the
   status says advertising failed with error 1, shorten the phone's Bluetooth name.
 - **A multi-tap comes out as separate taps:** tap faster, or raise the tap window.
+- **"Tap, then slide" comes out as a tap and a separate slide:** the ring only reports a slide
+  after it has recognized the swipe, so the slide arrives well after the tap. The status line
+  **Last gap tap->slide** shows the measured gap: set the **Combo buffer** above your typical gap
+  (e.g. gap 700 ms → buffer 900-1000 ms). Note that while a tap-then-slide combo is assigned,
+  a single tap waits for the buffer before it fires.
+- **Gamepad buttons do nothing after updating the app:** the glasses read the bridge's HID layout
+  when pairing. Remove the phone from the glasses' third-party devices and pair it again.
 
 ## Advanced: input map without the MemoMind app
 

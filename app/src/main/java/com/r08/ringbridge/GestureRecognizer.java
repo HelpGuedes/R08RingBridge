@@ -7,8 +7,11 @@ import android.os.SystemClock;
  * Turns the ring's single events (tap, slide up, slide down) into gestures:
  *   slide_up, slide_down, tap1..tap4, tap_slide_up, tap_slide_down, slide_up_tap, slide_down_tap
  *
- * Taps are counted while they keep arriving within the tap window. The recognizer only
- * waits when a longer gesture is actually mapped, so unmapped combos add no delay.
+ * Two timings:
+ *  - tap window: maximum gap between the taps of one multi-tap.
+ *  - combo buffer: how long a tap waits for a following slide (and a slide for a following tap).
+ *    The ring only reports a slide after it has recognized the swipe, so this needs to be longer
+ *    than the tap window. It is only used when a combo gesture is actually assigned.
  */
 final class GestureRecognizer {
 
@@ -26,6 +29,8 @@ final class GestureRecognizer {
     interface Config {
         long windowMs();
 
+        long comboMs();
+
         boolean isMapped(String gesture);
     }
 
@@ -34,8 +39,14 @@ final class GestureRecognizer {
     private final Config config;
 
     private int taps;
-    private long lastTapAt;
+    private long lastTapAt = -100000;
+    private long lastSlideAt = -100000;
     private String pendingSlide; // "up"/"down" waiting for a possible tap
+
+    /** Last measured gaps, for tuning (ms, -1 = none yet). */
+    volatile long lastTapToSlideMs = -1;
+    volatile long lastSlideToTapMs = -1;
+
     private final Runnable resolveTaps = new Runnable() {
         @Override public void run() { flushTaps(); }
     };
@@ -51,6 +62,7 @@ final class GestureRecognizer {
 
     void onTap() {
         long now = SystemClock.uptimeMillis();
+        if (now - lastSlideAt < 3000) lastSlideToTapMs = now - lastSlideAt;
         if (pendingSlide != null) {
             String dir = pendingSlide;
             handler.removeCallbacks(resolveSlide);
@@ -58,23 +70,31 @@ final class GestureRecognizer {
             sink.onGesture("slide_" + dir + "_tap");
             return;
         }
-        if (taps > 0 && now - lastTapAt < BOUNCE_MS) return; // ignore contact bounce
+        if (taps > 0 && now - lastTapAt < BOUNCE_MS) return; // contact bounce
+        if (taps > 0 && now - lastTapAt > config.windowMs()) flushTaps(); // too late to extend the multi-tap
         handler.removeCallbacks(resolveTaps);
         taps++;
         lastTapAt = now;
-        if (taps >= MAX_TAPS || !wantsMoreAfter(taps)) {
+        boolean moreTaps = taps < MAX_TAPS && wantsMoreTapsAfter(taps);
+        boolean combo = tapComboMapped();
+        if (!moreTaps && !combo) {
             flushTaps();
-        } else {
-            handler.postDelayed(resolveTaps, config.windowMs());
+            return;
         }
+        long wait = moreTaps ? config.windowMs() : 0;
+        if (combo) wait = Math.max(wait, config.comboMs());
+        handler.postDelayed(resolveTaps, wait);
     }
 
     void onSlide(boolean up) {
+        long now = SystemClock.uptimeMillis();
         String dir = up ? "up" : "down";
+        if (now - lastTapAt < 3000) lastTapToSlideMs = now - lastTapAt;
+        lastSlideAt = now;
         flushSlide();
         if (taps > 0) {
             String combo = "tap_slide_" + dir;
-            if (config.isMapped(combo)) {
+            if (config.isMapped(combo) && now - lastTapAt <= config.comboMs()) {
                 handler.removeCallbacks(resolveTaps);
                 taps = 0;
                 sink.onGesture(combo);
@@ -84,7 +104,7 @@ final class GestureRecognizer {
         }
         if (config.isMapped("slide_" + dir + "_tap")) {
             pendingSlide = dir;
-            handler.postDelayed(resolveSlide, config.windowMs());
+            handler.postDelayed(resolveSlide, config.comboMs());
         } else {
             sink.onGesture("slide_" + dir);
         }
@@ -97,10 +117,14 @@ final class GestureRecognizer {
         pendingSlide = null;
     }
 
-    private boolean wantsMoreAfter(int count) {
+    private boolean wantsMoreTapsAfter(int count) {
         for (int k = count + 1; k <= MAX_TAPS; k++) {
             if (config.isMapped("tap" + k)) return true;
         }
+        return false;
+    }
+
+    private boolean tapComboMapped() {
         return config.isMapped("tap_slide_up") || config.isMapped("tap_slide_down");
     }
 

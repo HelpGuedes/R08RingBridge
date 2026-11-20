@@ -20,6 +20,7 @@ public class RingAccessibilityService extends AccessibilityService {
         if (checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
                 && checkSelfPermission(Manifest.permission.BLUETOOTH_ADVERTISE) == PackageManager.PERMISSION_GRANTED) {
             core.startHid();
+            BridgeService.start(this);
         }
         core.onHidStateChanged();
     }

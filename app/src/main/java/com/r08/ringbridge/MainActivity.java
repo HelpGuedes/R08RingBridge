@@ -31,6 +31,7 @@ public class MainActivity extends Activity {
 
     private BridgeCore core;
     private TextView status;
+    private TextView eventLog;
     private LinearLayout root;
 
     @Override
@@ -60,9 +61,13 @@ public class MainActivity extends Activity {
                 startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
             }
         });
-        button("3. Start / restart HID advertising", new View.OnClickListener() {
+        button("3. Start / restart the bridge", new View.OnClickListener() {
             @Override public void onClick(View v) {
-                if (hasBluetooth()) { core.hid.stop(); core.startHid(); } else requestBluetooth();
+                if (hasBluetooth()) {
+                    core.hid.stop();
+                    core.startHid();
+                    BridgeService.start(MainActivity.this);
+                } else requestBluetooth();
             }
         });
 
@@ -88,6 +93,13 @@ public class MainActivity extends Activity {
         testButton(row, "Down", Action.DOWN);
         testButton(row, "Double", Action.DOUBLE);
         testButton(row, "Long", Action.LONG_PRESS);
+        LinearLayout padRow = new LinearLayout(this);
+        padRow.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(padRow);
+        testButton(padRow, "Pad A", Action.PAD_A);
+        testButton(padRow, "Pad B", Action.PAD_B);
+        testButton(padRow, "Pad X", Action.PAD_X);
+        testButton(padRow, "Pad Y", Action.PAD_Y);
 
         header("Gesture -> glasses action");
         for (int i = 0; i < GestureRecognizer.GESTURES.length; i++) {
@@ -96,8 +108,20 @@ public class MainActivity extends Activity {
 
         header("Timing and ring");
         numberSetting("Tap window (ms) - max gap between taps of a multi-tap", "window_ms", 350);
+        numberSetting("Combo buffer (ms) - how long a tap waits for a slide (tap then slide), and a slide for a tap", "combo_ms", 900);
         numberSetting("Long-press hold (ms)", "hold_ms", 2100);
         textSetting("Ring device name contains", "ring_filter", "R08");
+
+        header("Event log (newest first)");
+        TextView logHelp = new TextView(this);
+        logHelp.setText("Lock the phone, use the ring, unlock and read this: it shows whether ring keys "
+                + "arrived, which gesture they became and whether they were sent to the glasses.");
+        root.addView(logHelp);
+        eventLog = new TextView(this);
+        eventLog.setTypeface(Typeface.MONOSPACE);
+        eventLog.setTextSize(11);
+        eventLog.setTextIsSelectable(true);
+        root.addView(eventLog);
 
         TextView help = new TextView(this);
         help.setPadding(0, dp(12), 0, 0);
@@ -127,11 +151,20 @@ public class MainActivity extends Activity {
     private void refresh() {
         status.setText("Bluetooth permission: " + (hasBluetooth() ? "yes" : "NO")
                 + "\nRing service (Accessibility): " + (core.accessibilityConnected ? "on" : "OFF")
+                + "\nBackground service: " + (core.serviceRunning ? "running" : "not running")
                 + "\nLocked/screen-off mode: " + (core.screenOffActive() ? "active" : "off")
                 + "\nGlasses link: " + core.hid.state
                 + "\nReady to send: " + (core.hid.isReady() ? "yes" : "no")
                 + "\nLast ring key: " + core.lastKey
-                + "\nLast gesture: " + core.lastGesture);
+                + "\nLast gesture: " + core.lastGesture
+                + "\nGamepad report subscribed: " + (core.hid.isGamepadReady() ? "yes" : "no")
+                + "\nLast gap tap->slide: " + gap(core.lastTapToSlideMs())
+                + "   slide->tap: " + gap(core.lastSlideToTapMs()));
+        if (eventLog != null) eventLog.setText(core.eventLog());
+    }
+
+    private static String gap(long ms) {
+        return ms < 0 ? "-" : ms + " ms";
     }
 
     // ------------------------------------------------------------------ permissions
@@ -143,13 +176,16 @@ public class MainActivity extends Activity {
 
     private void requestBluetooth() {
         requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_ADVERTISE}, 1);
+                Manifest.permission.BLUETOOTH_ADVERTISE, Manifest.permission.POST_NOTIFICATIONS}, 1);
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (hasBluetooth()) core.startHid();
+        if (hasBluetooth()) {
+            core.startHid();
+            BridgeService.start(this);
+        }
         refresh();
     }
 
