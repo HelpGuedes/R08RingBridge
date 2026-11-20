@@ -35,10 +35,9 @@ There are two layers:
 Every gesture can be reassigned in the bridge app (Gesture → glasses action). Gestures you leave
 unassigned add no delay to the others.
 
-Besides the keyboard keys, every gesture can also send a **gamepad button** (A, B, X, Y, L1, R1,
-L2, R2, Select, Start, L3, R3). The bridge has a second HID report, a standard 12-button gamepad,
-so the glasses see these as gamepad buttons. Record them in the MemoMind app like any other key,
-or use them in apps that read gamepad input. The "Pad A/B/X/Y" test buttons send them directly.
+Gestures can also send **Button A-H**: eight extra keys (keyboard keys A-H) with no default
+meaning on the glasses. Assign them to gestures in the bridge app, then record those gestures in
+the MemoMind app for any action you want. The "A/B/C/D" test buttons send them directly.
 
 ### Example mapping (the setup this project was built with)
 
@@ -160,8 +159,11 @@ you prefer the old behavior (ring works only with the screen on).
   **Last gap tap->slide** shows the measured gap: set the **Combo buffer** above your typical gap
   (e.g. gap 700 ms → buffer 900-1000 ms). Note that while a tap-then-slide combo is assigned,
   a single tap waits for the buffer before it fires.
-- **Gamepad buttons do nothing after updating the app:** the glasses read the bridge's HID layout
-  when pairing. Remove the phone from the glasses' third-party devices and pair it again.
+- **Glasses find the phone but don't connect** (often after reinstalling or after an update that
+  changed the bridge's keys): leftover pairing keys. In nRF Connect → BONDED, delete the bond of the glasses' BLE
+  entry (the MemoMind One entry that is *not* the glasses' main address), remove the phone in
+  MemoMind's third-party devices, then pair again with the bridge app open. The event log shows
+  `link UP/DOWN (status ...)` and `bond ...: PAIRED / PAIRING FAILED` lines for each attempt.
 
 ## Advanced: input map without the MemoMind app
 

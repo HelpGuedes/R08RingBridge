@@ -96,10 +96,10 @@ public class MainActivity extends Activity {
         LinearLayout padRow = new LinearLayout(this);
         padRow.setOrientation(LinearLayout.HORIZONTAL);
         root.addView(padRow);
-        testButton(padRow, "Pad A", Action.PAD_A);
-        testButton(padRow, "Pad B", Action.PAD_B);
-        testButton(padRow, "Pad X", Action.PAD_X);
-        testButton(padRow, "Pad Y", Action.PAD_Y);
+        testButton(padRow, "A", Action.BTN_A);
+        testButton(padRow, "B", Action.BTN_B);
+        testButton(padRow, "C", Action.BTN_C);
+        testButton(padRow, "D", Action.BTN_D);
 
         header("Gesture -> glasses action");
         for (int i = 0; i < GestureRecognizer.GESTURES.length; i++) {
@@ -157,7 +157,7 @@ public class MainActivity extends Activity {
                 + "\nReady to send: " + (core.hid.isReady() ? "yes" : "no")
                 + "\nLast ring key: " + core.lastKey
                 + "\nLast gesture: " + core.lastGesture
-                + "\nGamepad report subscribed: " + (core.hid.isGamepadReady() ? "yes" : "no")
+
                 + "\nLast gap tap->slide: " + gap(core.lastTapToSlideMs())
                 + "   slide->tap: " + gap(core.lastSlideToTapMs()));
         if (eventLog != null) eventLog.setText(core.eventLog());

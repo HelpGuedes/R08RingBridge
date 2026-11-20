@@ -53,6 +53,10 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
         // take over media buttons so the ring keeps working while the phone is locked.
         BroadcastReceiver screenOff = new BroadcastReceiver() {
             @Override public void onReceive(Context c, Intent intent) {
+                if (android.bluetooth.BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(intent.getAction())) {
+                    logBond(intent);
+                    return;
+                }
                 boolean off = Intent.ACTION_SCREEN_OFF.equals(intent.getAction());
                 log(off ? "screen off" : "screen on");
                 if (off && screenOffMode() && (accessibilityConnected || serviceRunning)) {
@@ -63,6 +67,7 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
         };
         IntentFilter filter = new IntentFilter(Intent.ACTION_SCREEN_OFF);
         filter.addAction(Intent.ACTION_SCREEN_ON);
+        filter.addAction(android.bluetooth.BluetoothDevice.ACTION_BOND_STATE_CHANGED);
         if (android.os.Build.VERSION.SDK_INT >= 33) {
             app.registerReceiver(screenOff, filter, Context.RECEIVER_NOT_EXPORTED);
         } else {
@@ -102,6 +107,17 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
         prefs.edit().putBoolean("screen_off_mode", on).apply();
         refreshMediaKeys();
         notifyUi();
+    }
+
+    @SuppressWarnings("deprecation")
+    private void logBond(Intent intent) {
+        android.bluetooth.BluetoothDevice d = intent.getParcelableExtra(android.bluetooth.BluetoothDevice.EXTRA_DEVICE);
+        int st = intent.getIntExtra(android.bluetooth.BluetoothDevice.EXTRA_BOND_STATE, -1);
+        int prev = intent.getIntExtra(android.bluetooth.BluetoothDevice.EXTRA_PREVIOUS_BOND_STATE, -1);
+        String name = st == android.bluetooth.BluetoothDevice.BOND_BONDED ? "PAIRED"
+                : st == android.bluetooth.BluetoothDevice.BOND_BONDING ? "pairing..."
+                : (prev == android.bluetooth.BluetoothDevice.BOND_BONDING ? "PAIRING FAILED" : "unpaired");
+        log("bond " + (d == null ? "?" : d.getAddress()) + ": " + name);
     }
 
     void refreshMediaKeys() {
@@ -198,7 +214,7 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
 
     void perform(Action a) {
         if (a == Action.NONE) return;
-        hid.sendKey(a.report, a.bit, a.held ? holdMs() : 90);
+        hid.sendKey(a.bit, a.held ? holdMs() : 90);
     }
 
     void startHid() { hid.start(); }
