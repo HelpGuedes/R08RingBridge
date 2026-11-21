@@ -81,10 +81,10 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
         switch (gesture) {
             case "slide_up": return Action.UP;
             case "slide_down": return Action.DOWN;
-            case "tap1": return Action.DOUBLE;
-            case "tap2": return Action.SINGLE;
+            case "tap1": return Action.SINGLE;
+            case "tap2": return Action.MEDIA_NEXT;
             case "tap3": return Action.BACK;
-            case "tap4": return Action.LONG_PRESS;
+            case "tap4": return Action.MEDIA_PLAY_PAUSE;
             default: return Action.NONE;
         }
     }

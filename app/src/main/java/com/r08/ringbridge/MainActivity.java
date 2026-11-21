@@ -91,22 +91,22 @@ public class MainActivity extends Activity {
         root.addView(row);
         testButton(row, "Up", Action.UP);
         testButton(row, "Down", Action.DOWN);
-        testButton(row, "Double", Action.DOUBLE);
-        testButton(row, "Long", Action.LONG_PRESS);
+        testButton(row, "Left", Action.LEFT);
+        testButton(row, "Right", Action.RIGHT);
         LinearLayout padRow = new LinearLayout(this);
         padRow.setOrientation(LinearLayout.HORIZONTAL);
         root.addView(padRow);
-        testButton(padRow, "Home", Action.KEY_HOME);
-        testButton(padRow, "PgUp", Action.KEY_PAGE_UP);
-        testButton(padRow, "PgDn", Action.KEY_PAGE_DOWN);
-        testButton(padRow, "Menu", Action.KEY_MENU);
+        testButton(padRow, "Single", Action.SINGLE);
+        testButton(padRow, "Back", Action.BACK);
+        testButton(padRow, "Next", Action.MEDIA_NEXT);
+        testButton(padRow, "Prev", Action.MEDIA_PREV);
         LinearLayout padRow2 = new LinearLayout(this);
         padRow2.setOrientation(LinearLayout.HORIZONTAL);
         root.addView(padRow2);
-        testButton(padRow2, "App", Action.KEY_APPLICATION);
-        testButton(padRow2, "Mute", Action.KEY_MUTE);
-        testButton(padRow2, "Vol+", Action.KEY_VOL_UP);
-        testButton(padRow2, "Vol-", Action.KEY_VOL_DOWN);
+        testButton(padRow2, "Play", Action.MEDIA_PLAY_PAUSE);
+        testButton(padRow2, "Mute", Action.MEDIA_MUTE);
+        testButton(padRow2, "Vol+", Action.MEDIA_VOL_UP);
+        testButton(padRow2, "Vol-", Action.MEDIA_VOL_DOWN);
 
         header("Gesture -> glasses action");
         for (int i = 0; i < GestureRecognizer.GESTURES.length; i++) {
@@ -116,7 +116,6 @@ public class MainActivity extends Activity {
         header("Timing and ring");
         numberSetting("Tap window (ms) - max gap between taps of a multi-tap", "window_ms", 350);
         numberSetting("Combo buffer (ms) - how long a tap waits for a slide (tap then slide), and a slide for a tap", "combo_ms", 900);
-        numberSetting("Long-press hold (ms)", "hold_ms", 2100);
         textSetting("Ring device name contains", "ring_filter", "R08");
 
         header("Event log (newest first)");

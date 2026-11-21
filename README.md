@@ -24,24 +24,22 @@ There are two layers:
 
 | Ring gesture | Key the bridge sends | Glasses without any mapping |
 |---|---|---|
-| Slide up | Up arrow | Up (built-in) |
-| Slide down | Down arrow | Down (built-in) |
-| 1 tap | Keypad Enter | Single press (built-in) |
-| 2 taps | Enter | Single press (built-in) |
-| 3 taps | Escape | Back (built-in) |
-| 4 taps | Space, held 2.1 s | Nothing until mapped |
+| Slide up / down | Up / Down arrow | Up / Down |
+| 1 tap | Enter | Single click |
+| 2 taps | Next track (media key) | Next track (re-map it in MemoMind, e.g. to Double click) |
+| 3 taps | Escape | Back |
+| 4 taps | Pause/Resume (media key) | Pause/Resume (re-map it, e.g. to Open AI chat) |
 | Tap + slide, slide + tap | (unassigned) | - |
 
-Every gesture can be reassigned in the bridge app (Gesture → glasses action). Gestures you leave
-unassigned add no delay to the others.
+The bridge only offers keys the glasses firmware recognizes, so every one of them can be recorded in
+the MemoMind app and given any "AI glasses action" (Single/Double click, Back, Open AI chat, Open
+quick menu, Turn off screen, ...):
 
-Gestures can also send **extra keys**: Home, Page up, Page down, Menu, Application, Mute,
-Volume up, Volume down (keyboard keys). The MemoMind app can only record keys the glasses'
-firmware recognizes (letters, for example, are ignored), so test each one with the bridge app's
-test buttons while recording in MemoMind and use the ones that register.
+- keyboard: Up, Down, Left, Right, Enter (single press), Escape (back)
+- media keys: Next track, Previous track, Pause/Resume, Mute, Volume up, Volume down
 
-The bridge deliberately uses **one** HID report: with a second report (gamepad or media keys)
-the glasses connected but received no keys.
+All of them live in **one** HID report (byte 0 = keyboard keys, byte 1 = media keys). A second HID
+report broke the connection with the glasses in earlier versions, so don't add one.
 
 ### Example mapping (the setup this project was built with)
 

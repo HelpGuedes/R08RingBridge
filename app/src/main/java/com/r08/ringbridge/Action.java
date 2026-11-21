@@ -1,40 +1,34 @@
 package com.r08.ringbridge;
 
 /**
- * What the bridge sends to the glasses: one button in one of the bridge's two HID reports.
+ * What the bridge sends to the glasses: one bit of the single 2-byte keyboard report.
  *
- * One keyboard report (bits 0-15). Arrows, Enter = single press, Escape = back are glasses
- * defaults. Bits 8-15 are extra keyboard keys (Home, Page up/down, Menu, Application, Mute,
- * Volume up/down) for recording in the MemoMind app.
+ * All of these are keys the glasses firmware recognizes, so the MemoMind app can map them to any
+ * "AI glasses action" (Double click, Open AI chat, Open quick menu, Turn off screen, ...):
+ *  - keyboard: arrows, Enter (single press), Escape (back)
+ *  - media (Consumer page): Next/Previous track, Play/Pause, Mute, Volume up/down
  */
 enum Action {
-    NONE("Nothing", 0, -1, false),
-    UP("Up", 1, 0, false),
-    DOWN("Down", 1, 1, false),
-    LEFT("Left", 1, 2, false),
-    RIGHT("Right", 1, 3, false),
-    SINGLE("Single press (Enter)", 1, 4, false),
-    BACK("Back (Escape)", 1, 5, false),
-    DOUBLE("Keypad Enter (map: double press)", 1, 6, false),
-    LONG_PRESS("Space, held (map: long press)", 1, 7, true),
-    LONG_DOUBLE("Keypad Enter, held", 1, 6, true),
-    KEY_HOME("Home", 1, 8, false),
-    KEY_PAGE_UP("Page up", 1, 9, false),
-    KEY_PAGE_DOWN("Page down", 1, 10, false),
-    KEY_MENU("Menu", 1, 11, false),
-    KEY_APPLICATION("Application key", 1, 12, false),
-    KEY_MUTE("Mute", 1, 13, false),
-    KEY_VOL_UP("Volume up", 1, 14, false),
-    KEY_VOL_DOWN("Volume down", 1, 15, false);
+    NONE("Nothing", -1, false),
+    UP("Up", 0, false),
+    DOWN("Down", 1, false),
+    LEFT("Left", 2, false),
+    RIGHT("Right", 3, false),
+    SINGLE("Single press (Enter)", 4, false),
+    BACK("Back (Escape)", 5, false),
+    MEDIA_NEXT("Next track", 8, false),
+    MEDIA_PREV("Previous track", 9, false),
+    MEDIA_PLAY_PAUSE("Pause/Resume", 10, false),
+    MEDIA_MUTE("Mute", 11, false),
+    MEDIA_VOL_UP("Volume up", 12, false),
+    MEDIA_VOL_DOWN("Volume down", 13, false);
 
     final String label;
-    final int report;
     final int bit;
     final boolean held;
 
-    Action(String label, int report, int bit, boolean held) {
+    Action(String label, int bit, boolean held) {
         this.label = label;
-        this.report = report;
         this.bit = bit;
         this.held = held;
     }

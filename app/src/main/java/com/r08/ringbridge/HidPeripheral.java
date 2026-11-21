@@ -34,14 +34,14 @@ import java.util.UUID;
 /**
  * The phone as a BLE HID keyboard (HOGP device) for the MemoMind glasses.
  *
- * ONE input report (ID 1), 2 bytes, 16 one-bit keys. A single report is required: with a second
- * report the glasses connect but receive no keys.
- *   byte 0 (unchanged from the first working version):
+ * ONE input report (ID 1), 2 bytes, one Keyboard collection. A single report is required: with
+ * a second report the glasses connected but received no keys.
+ *   byte 0 (unchanged from the first working version; arrows/Enter/Escape are recognized):
  *     bit0 Up 0x52, bit1 Down 0x51, bit2 Left 0x50, bit3 Right 0x4F,
  *     bit4 Enter 0x28, bit5 Escape 0x29, bit6 Keypad Enter 0x58, bit7 Space 0x2C
- *   byte 1, extra keys (keyboard keys the glasses have logical keys for):
- *     bit8 Home 0x4A, bit9 Page Up 0x4B, bit10 Page Down 0x4E, bit11 Menu 0x76,
- *     bit12 Application 0x65, bit13 Mute 0x7F, bit14 Volume Up 0x80, bit15 Volume Down 0x81
+ *   byte 1, Consumer-page media keys (recognized by the glasses firmware, seen from the ring):
+ *     bit8 Next 0xB5, bit9 Previous 0xB6, bit10 Play/Pause 0xCD, bit11 Mute 0xE2,
+ *     bit12 Volume Up 0xE9, bit13 Volume Down 0xEA, bits 14-15 padding
  */
 final class HidPeripheral {
     private static final String TAG = "RingBridgeHid";
@@ -84,16 +84,17 @@ final class HidPeripheral {
             0x75, 0x01,             //   Report Size (1)
             (byte) 0x95, 0x08,      //   Report Count (8)
             (byte) 0x81, 0x02,      //   Input (Data, Variable, Absolute)
-            0x09, 0x4A,             //   Usage (Home)            bit8
-            0x09, 0x4B,             //   Usage (Page Up)         bit9
-            0x09, 0x4E,             //   Usage (Page Down)       bit10
-            0x09, 0x76,             //   Usage (Menu)            bit11
-            0x09, 0x65,             //   Usage (Application)     bit12
-            0x09, 0x7F,             //   Usage (Mute)            bit13
-            0x09, (byte) 0x80,      //   Usage (Volume Up)       bit14
-            0x09, (byte) 0x81,      //   Usage (Volume Down)     bit15
-            (byte) 0x95, 0x08,      //   Report Count (8)
+            0x05, 0x0C,             //   Usage Page (Consumer)
+            0x09, (byte) 0xB5,      //   Usage (Scan Next Track)     bit8
+            0x09, (byte) 0xB6,      //   Usage (Scan Previous Track) bit9
+            0x09, (byte) 0xCD,      //   Usage (Play/Pause)          bit10
+            0x09, (byte) 0xE2,      //   Usage (Mute)                bit11
+            0x09, (byte) 0xE9,      //   Usage (Volume Increment)    bit12
+            0x09, (byte) 0xEA,      //   Usage (Volume Decrement)    bit13
+            (byte) 0x95, 0x06,      //   Report Count (6)
             (byte) 0x81, 0x02,      //   Input (Data, Variable, Absolute)
+            (byte) 0x95, 0x02,      //   Report Count (2)
+            (byte) 0x81, 0x03,      //   Input (Constant) padding
             (byte) 0xC0             // End Collection
     };
 
@@ -176,9 +177,9 @@ final class HidPeripheral {
 
     // ------------------------------------------------------------------ sending keys
 
-    /** Press one key (bit 0-15) for holdMs, then release. Presses never overlap. */
+    /** Press one key (bit 0-13) for holdMs, then release. Presses never overlap. */
     void sendKey(final int bit, final int holdMs) {
-        if (bit < 0 || bit > 15) return;
+        if (bit < 0 || bit > 13) return;
         long now = SystemClock.uptimeMillis();
         long pressAt = Math.max(now, busyUntil);
         long releaseAt = pressAt + Math.max(30, holdMs);
