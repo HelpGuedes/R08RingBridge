@@ -96,10 +96,17 @@ public class MainActivity extends Activity {
         LinearLayout padRow = new LinearLayout(this);
         padRow.setOrientation(LinearLayout.HORIZONTAL);
         root.addView(padRow);
-        testButton(padRow, "A", Action.BTN_A);
-        testButton(padRow, "B", Action.BTN_B);
-        testButton(padRow, "C", Action.BTN_C);
-        testButton(padRow, "D", Action.BTN_D);
+        testButton(padRow, "Next", Action.MEDIA_NEXT);
+        testButton(padRow, "Prev", Action.MEDIA_PREV);
+        testButton(padRow, "Play", Action.MEDIA_PLAY_PAUSE);
+        testButton(padRow, "Mute", Action.MEDIA_MUTE);
+        LinearLayout padRow2 = new LinearLayout(this);
+        padRow2.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(padRow2);
+        testButton(padRow2, "Vol+", Action.MEDIA_VOL_UP);
+        testButton(padRow2, "Vol-", Action.MEDIA_VOL_DOWN);
+        testButton(padRow2, "Home", Action.MEDIA_HOME);
+        testButton(padRow2, "Menu", Action.MEDIA_MENU);
 
         header("Gesture -> glasses action");
         for (int i = 0; i < GestureRecognizer.GESTURES.length; i++) {
@@ -157,6 +164,7 @@ public class MainActivity extends Activity {
                 + "\nReady to send: " + (core.hid.isReady() ? "yes" : "no")
                 + "\nLast ring key: " + core.lastKey
                 + "\nLast gesture: " + core.lastGesture
+                + "\nMedia-key report subscribed: " + (core.hid.isMediaReady() ? "yes" : "no")
 
                 + "\nLast gap tap->slide: " + gap(core.lastTapToSlideMs())
                 + "   slide->tap: " + gap(core.lastSlideToTapMs()));

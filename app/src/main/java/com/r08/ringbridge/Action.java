@@ -3,9 +3,10 @@ package com.r08.ringbridge;
 /**
  * What the bridge sends to the glasses: one button in one of the bridge's two HID reports.
  *
- * One keyboard report. Bits 0-5 use keys the glasses map by default (arrows, Enter = single
- * press, Esc = back). Bit 6 (Keypad Enter), bit 7 (Space) and bits 8-15 (Button A-H = keys
- * A-H) have no default meaning: map them in the MemoMind app to the actions you want.
+ * Report 1 (keyboard): arrows, Enter = single press, Escape = back (glasses defaults), plus
+ * Keypad Enter and Space.
+ * Report 2 (media keys): Next, Previous, Play/Pause, Mute, Volume up/down, Home, Menu. The
+ * glasses recognize these as keys, so the MemoMind app can record them for any action.
  */
 enum Action {
     NONE("Nothing", 0, -1, false),
@@ -18,14 +19,14 @@ enum Action {
     DOUBLE("Keypad Enter (map: double press)", 1, 6, false),
     LONG_PRESS("Space, held (map: long press)", 1, 7, true),
     LONG_DOUBLE("Keypad Enter, held", 1, 6, true),
-    BTN_A("Button A", 1, 8, false),
-    BTN_B("Button B", 1, 9, false),
-    BTN_C("Button C", 1, 10, false),
-    BTN_D("Button D", 1, 11, false),
-    BTN_E("Button E", 1, 12, false),
-    BTN_F("Button F", 1, 13, false),
-    BTN_G("Button G", 1, 14, false),
-    BTN_H("Button H", 1, 15, false);
+    MEDIA_NEXT("Media: Next", 2, 0, false),
+    MEDIA_PREV("Media: Previous", 2, 1, false),
+    MEDIA_PLAY_PAUSE("Media: Play/Pause", 2, 2, false),
+    MEDIA_MUTE("Media: Mute", 2, 3, false),
+    MEDIA_VOL_UP("Media: Volume up", 2, 4, false),
+    MEDIA_VOL_DOWN("Media: Volume down", 2, 5, false),
+    MEDIA_HOME("Media: Home", 2, 6, false),
+    MEDIA_MENU("Media: Menu", 2, 7, false);
 
     final String label;
     final int report;

@@ -214,7 +214,7 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
 
     void perform(Action a) {
         if (a == Action.NONE) return;
-        hid.sendKey(a.bit, a.held ? holdMs() : 90);
+        hid.sendKey(a.report, a.bit, a.held ? holdMs() : 90);
     }
 
     void startHid() { hid.start(); }

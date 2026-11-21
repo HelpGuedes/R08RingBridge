@@ -32,13 +32,17 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * The phone as a BLE HID keyboard (HOGP device) for the MemoMind glasses.
+ * The phone as a BLE HID device (HOGP) for the MemoMind glasses. Two input reports, the same
+ * structure as the R08 ring itself (which the glasses handle):
  *
- * One input report (ID 1), 2 bytes, 16 one-bit keys:
- *   byte 0: bit0 Up 0x52, bit1 Down 0x51, bit2 Left 0x50, bit3 Right 0x4F,
- *           bit4 Enter 0x28, bit5 Escape 0x29, bit6 Keypad Enter 0x58, bit7 Space 0x2C
- *   byte 1: bits 8-15 = keys A-H (0x04-0x0B), "Button A-H", no default meaning on the glasses
- * Two 8-usage fields keep it inside the glasses' parser limits (16 usages per field).
+ * Report 1, Keyboard collection, 1 byte (unchanged from the first working version):
+ *   bit0 Up 0x52, bit1 Down 0x51, bit2 Left 0x50, bit3 Right 0x4F,
+ *   bit4 Enter 0x28, bit5 Escape 0x29, bit6 Keypad Enter 0x58, bit7 Space 0x2C
+ * Report 2, Consumer Control collection, 1 byte, media keys the glasses recognize
+ * (Next/Previous/Play-Pause/Mute were seen as real keys from the ring), so the MemoMind app
+ * can record them:
+ *   bit0 Next 0xB5, bit1 Previous 0xB6, bit2 Play/Pause 0xCD, bit3 Mute 0xE2,
+ *   bit4 Volume Up 0xE9, bit5 Volume Down 0xEA, bit6 Home 0x223, bit7 Menu 0x40
  */
 final class HidPeripheral {
     private static final String TAG = "RingBridgeHid";
@@ -62,7 +66,9 @@ final class HidPeripheral {
     static final UUID BATTERY_LEVEL = uuid16(0x2A19);
 
     static final byte KEYBOARD_REPORT_ID = 1;
+    static final byte CONSUMER_REPORT_ID = 2;
     static final byte[] REPORT_MAP_BYTES = {
+            // ---- Report 1: keyboard (byte-identical to the first working version)
             0x05, 0x01,             // Usage Page (Generic Desktop)
             0x09, 0x06,             // Usage (Keyboard)
             (byte) 0xA1, 0x01,      // Collection (Application)
@@ -81,8 +87,24 @@ final class HidPeripheral {
             0x75, 0x01,             //   Report Size (1)
             (byte) 0x95, 0x08,      //   Report Count (8)
             (byte) 0x81, 0x02,      //   Input (Data, Variable, Absolute)
-            0x19, 0x04,             //   Usage Minimum (A)       bit8
-            0x29, 0x0B,             //   Usage Maximum (H)       bit15
+            (byte) 0xC0,            // End Collection
+
+            // ---- Report 2: media keys (Consumer Control), like the ring's own report
+            0x05, 0x0C,             // Usage Page (Consumer)
+            0x09, 0x01,             // Usage (Consumer Control)
+            (byte) 0xA1, 0x01,      // Collection (Application)
+            (byte) 0x85, CONSUMER_REPORT_ID, // Report ID (2)
+            0x09, (byte) 0xB5,      //   Usage (Scan Next Track)     bit0
+            0x09, (byte) 0xB6,      //   Usage (Scan Previous Track) bit1
+            0x09, (byte) 0xCD,      //   Usage (Play/Pause)          bit2
+            0x09, (byte) 0xE2,      //   Usage (Mute)                bit3
+            0x09, (byte) 0xE9,      //   Usage (Volume Increment)    bit4
+            0x09, (byte) 0xEA,      //   Usage (Volume Decrement)    bit5
+            0x0A, 0x23, 0x02,       //   Usage (AC Home)             bit6
+            0x09, 0x40,             //   Usage (Menu)                bit7
+            0x15, 0x00,             //   Logical Minimum (0)
+            0x25, 0x01,             //   Logical Maximum (1)
+            0x75, 0x01,             //   Report Size (1)
             (byte) 0x95, 0x08,      //   Report Count (8)
             (byte) 0x81, 0x02,      //   Input (Data, Variable, Absolute)
             (byte) 0xC0             // End Collection
@@ -103,10 +125,12 @@ final class HidPeripheral {
     private BluetoothGattServer server;
     private BluetoothLeAdvertiser advertiser;
     private BluetoothGattCharacteristic keyboardReport;
+    private BluetoothGattCharacteristic consumerReport;
     private final Map<BluetoothGattCharacteristic, byte[]> values = new IdentityHashMap<>();
     private final ArrayDeque<BluetoothGattService> pendingServices = new ArrayDeque<>();
     private final Set<BluetoothDevice> connected = new HashSet<>();
-    private final Set<BluetoothDevice> subscribed = new HashSet<>();
+    private final Set<BluetoothDevice> subscribed = new HashSet<>();      // keyboard report
+    private final Set<BluetoothDevice> subscribedMedia = new HashSet<>(); // media-key report
     private boolean advertising;
     private boolean nameInScanResponse;
     private long busyUntil;
@@ -158,6 +182,7 @@ final class HidPeripheral {
         server = null;
         connected.clear();
         subscribed.clear();
+        subscribedMedia.clear();
         setState("stopped");
     }
 
@@ -167,36 +192,36 @@ final class HidPeripheral {
 
     // ------------------------------------------------------------------ sending keys
 
-    /** Press one key (bit 0-15) for holdMs, then release. Presses never overlap. */
-    void sendKey(final int bit, final int holdMs) {
-        if (bit < 0 || bit > 15) return;
+    /** Press one key of report 1 (keyboard) or 2 (media) for holdMs, then release. Presses never overlap. */
+    void sendKey(final int report, final int bit, final int holdMs) {
+        if (bit < 0 || bit > 7) return;
+        final boolean media = report == CONSUMER_REPORT_ID;
         long now = SystemClock.uptimeMillis();
         long pressAt = Math.max(now, busyUntil);
         long releaseAt = pressAt + Math.max(30, holdMs);
         busyUntil = releaseAt + 60;
         handler.postAtTime(new Runnable() {
-            @Override public void run() {
-                int v = 1 << bit;
-                notifyReport(new byte[]{(byte) (v & 0xFF), (byte) ((v >> 8) & 0xFF)});
-            }
+            @Override public void run() { notifyReport(media, (byte) (1 << bit)); }
         }, pressAt);
         handler.postAtTime(new Runnable() {
-            @Override public void run() { notifyReport(new byte[]{0, 0}); }
+            @Override public void run() { notifyReport(media, (byte) 0); }
         }, releaseAt);
     }
 
     @SuppressWarnings("deprecation")
-    private void notifyReport(byte[] value) {
-        BluetoothGattCharacteristic ch = keyboardReport;
+    private void notifyReport(boolean media, byte b) {
+        BluetoothGattCharacteristic ch = media ? consumerReport : keyboardReport;
         if (server == null || ch == null) {
             if (listener != null) listener.onHidLog("NOT sent: HID server not running");
             return;
         }
+        byte[] value = {b};
         values.put(ch, value);
-        Set<BluetoothDevice> targets = new HashSet<>(subscribed);
-        boolean press = value[0] != 0 || value[1] != 0;
-        if (listener != null && press) {
-            listener.onHidLog(targets.isEmpty() ? "NOT sent: glasses not subscribed" : "sent key to glasses");
+        Set<BluetoothDevice> targets = new HashSet<>(media ? subscribedMedia : subscribed);
+        if (listener != null && b != 0) {
+            listener.onHidLog(targets.isEmpty()
+                    ? "NOT sent: glasses not subscribed to the " + (media ? "media" : "keyboard") + " report"
+                    : "sent " + (media ? "media key" : "key") + " to glasses");
         }
         for (BluetoothDevice d : targets) {
             try {
@@ -210,6 +235,10 @@ final class HidPeripheral {
                 setState("Missing Bluetooth permission");
             }
         }
+    }
+
+    boolean isMediaReady() {
+        return !subscribedMedia.isEmpty();
     }
 
     // ------------------------------------------------------------------ GATT database
@@ -234,9 +263,15 @@ final class HidPeripheral {
                 BluetoothGattCharacteristic.PERMISSION_READ_ENCRYPTED | BluetoothGattCharacteristic.PERMISSION_WRITE_ENCRYPTED,
                 new byte[]{0x01})); // report protocol
 
-        keyboardReport = inputReportCharacteristic(new byte[]{0, 0});
+        keyboardReport = inputReportCharacteristic(new byte[]{0});
+        consumerReport = inputReportCharacteristic(new byte[]{0});
         s.addCharacteristic(keyboardReport);
+        s.addCharacteristic(consumerReport);
         return s;
+    }
+
+    private boolean isMedia(BluetoothGattDescriptor d) {
+        return consumerReport != null && d.getCharacteristic() == consumerReport;
     }
 
     private BluetoothGattCharacteristic inputReportCharacteristic(byte[] initial) {
@@ -359,12 +394,16 @@ final class HidPeripheral {
                 @Override public void run() {
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
                         connected.add(device);
-                        if (wasSubscribed(device)) subscribed.add(device); // bonded hosts may skip the CCCD write
+                        if (wasSubscribed(device)) { // bonded hosts may skip the CCCD writes
+                            subscribed.add(device);
+                            subscribedMedia.add(device);
+                        }
                         stopAdvertising();
                         setState("connected: " + describe(device));
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                         connected.remove(device);
                         subscribed.remove(device);
+                        subscribedMedia.remove(device);
                         setState("disconnected, advertising again");
                         if (connected.isEmpty()) startAdvertising();
                     }
@@ -384,9 +423,10 @@ final class HidPeripheral {
                                             BluetoothGattDescriptor descriptor) {
             byte[] v;
             if (CCCD.equals(descriptor.getUuid())) {
-                v = subscribed.contains(device) ? new byte[]{1, 0} : new byte[]{0, 0};
+                Set<BluetoothDevice> set = isMedia(descriptor) ? subscribedMedia : subscribed;
+                v = set.contains(device) ? new byte[]{1, 0} : new byte[]{0, 0};
             } else if (REPORT_REFERENCE.equals(descriptor.getUuid())) {
-                v = new byte[]{KEYBOARD_REPORT_ID, 0x01}; // input report
+                v = new byte[]{isMedia(descriptor) ? CONSUMER_REPORT_ID : KEYBOARD_REPORT_ID, 0x01}; // input report
             } else {
                 v = new byte[0];
             }
@@ -399,8 +439,15 @@ final class HidPeripheral {
                                              boolean responseNeeded, int offset, final byte[] value) {
             if (CCCD.equals(descriptor.getUuid())) {
                 final boolean on = value != null && value.length > 0 && (value[0] & 0x01) != 0;
+                final boolean media = isMedia(descriptor);
                 handler.post(new Runnable() {
                     @Override public void run() {
+                        if (media) {
+                            if (on) subscribedMedia.add(device); else subscribedMedia.remove(device);
+                            if (listener != null) listener.onHidLog("media-key report " + (on ? "subscribed" : "unsubscribed"));
+                            if (listener != null) listener.onHidStateChanged();
+                            return;
+                        }
                         if (on) subscribed.add(device); else subscribed.remove(device);
                         rememberSubscription(device, on);
                         setState(on ? "READY: glasses subscribed (" + describe(device) + ")"

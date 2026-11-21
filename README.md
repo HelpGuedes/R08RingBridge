@@ -35,9 +35,12 @@ There are two layers:
 Every gesture can be reassigned in the bridge app (Gesture → glasses action). Gestures you leave
 unassigned add no delay to the others.
 
-Gestures can also send **Button A-H**: eight extra keys (keyboard keys A-H) with no default
-meaning on the glasses. Assign them to gestures in the bridge app, then record those gestures in
-the MemoMind app for any action you want. The "A/B/C/D" test buttons send them directly.
+Gestures can also send **media keys** (Next, Previous, Play/Pause, Mute, Volume up/down, Home,
+Menu) from a second, media-key report, the same structure as the ring's own. The MemoMind app can
+only record keys the glasses' firmware already recognizes; media keys are among them (letters,
+for example, are not). Assign a media key to a gesture in the bridge app, then record that gesture
+in the MemoMind app for any action. The test buttons send them directly. Next, Previous,
+Play/Pause and Mute are confirmed; Volume, Home and Menu are worth testing.
 
 ### Example mapping (the setup this project was built with)
 
