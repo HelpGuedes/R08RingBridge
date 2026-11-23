@@ -108,14 +108,35 @@ mapping if you want them to do something else.
 The bridge app's **Up / Down / Double / Long** test buttons send the same keys as the ring
 gestures, which is handy for testing without the ring.
 
+## Switching the ring back to Music mode
+
+The bridge needs the ring in **Music** touch mode. If you use the ring in another mode elsewhere (for
+example E-book on an e-reader), you don't need QRing to switch back:
+
+1. Turn off the e-reader's Bluetooth (the ring talks to one device at a time).
+2. In the bridge app, tap **Ring → Music mode**.
+
+The app sends the same commands QRing uses (`3B 02 00 01 05`, `3B 02 01 00 00`, `3B 02 02 01 01`)
+over the ring's command channel. The ring restarts its Bluetooth link to apply a new mode, so
+the app reconnects, finishes, and then **reads the mode back** (`3B 01 00`). The status line
+"Ring touch mode" shows the result, and the event log shows each step (`ring: …`).
+**Read ring mode** only reads the current mode.
+
 ## Using it with the phone locked
 
-With the screen off, Android sends media keys to the "media button" app (normally your music
-player) instead of the Accessibility service. The **"Work while the phone is locked"** switch
-(on by default) handles this: the bridge runs as a foreground service, keeps a media session and a
-media button receiver, and when the screen turns off it plays a quarter second of silence so
-Android routes media buttons to it. Only keys from the ring are used; they show up as
-`(screen off)` or `(media receiver)` in the event log.
+With the screen off, Android sends media keys to the "media button" app (the app that most
+recently started audio, e.g. your music player) instead of the Accessibility service. With the
+**"Work while the phone is locked"** switch on (default), **the ring always controls the glasses**:
+
+- **Screen off:** the bridge takes the media buttons (it plays a quarter second of silence, which
+  makes it the most recent audio app) and **takes them again every time another app starts audio**,
+  such as when the next song starts. Ring keys become glasses actions. Every other media key,
+  including the glasses' own music controls (next, pause) and headphone buttons, is **ignored**
+  while the phone is locked (logged as `ignored … (not from the ring; phone locked)`).
+- **Screen on:** the bridge releases the media buttons. Accessibility handles the ring as usual and
+  the glasses' music controls work normally.
+
+A foreground service (notification "Ring → glasses bridge running") keeps this running.
 
 **Checking it:** lock the phone, use the ring, unlock and open the app. The **Event log** shows,
 in order: `screen off`, `claimed media buttons`, then for each ring event `key ...`,

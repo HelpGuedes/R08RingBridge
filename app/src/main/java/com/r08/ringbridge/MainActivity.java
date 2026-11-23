@@ -71,8 +71,39 @@ public class MainActivity extends Activity {
             }
         });
 
+        header("Ring touch mode");
+        TextView ringHelp = new TextView(this);
+        ringHelp.setText("The bridge needs the ring in Music mode. After using the ring in another mode "
+                + "(e.g. E-book on an e-reader), turn the e-reader's Bluetooth off and tap the button.");
+        root.addView(ringHelp);
+        LinearLayout ringRow = new LinearLayout(this);
+        ringRow.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(ringRow);
+        Button music = new Button(this);
+        music.setText("Ring \u2192 Music mode");
+        music.setAllCaps(false);
+        music.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (!hasBluetooth()) { requestBluetooth(); return; }
+                core.setRingMusicMode();
+            }
+        });
+        ringRow.addView(music, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.2f));
+        Button read = new Button(this);
+        read.setText("Read ring mode");
+        read.setAllCaps(false);
+        read.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                if (!hasBluetooth()) { requestBluetooth(); return; }
+                core.readRingMode();
+            }
+        });
+        ringRow.addView(read, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
         Switch screenOff = new Switch(this);
-        screenOff.setText("Work while the phone is locked (takes media buttons when the screen is off)");
+        screenOff.setText("Work while the phone is locked: the ring always controls the glasses. "
+                + "While the screen is off the bridge keeps all media buttons, so the glasses' own music "
+                + "controls (next/pause) don't work until you unlock the phone.");
         screenOff.setChecked(core.screenOffMode());
         screenOff.setPadding(0, dp(8), 0, dp(8));
         screenOff.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
@@ -158,7 +189,8 @@ public class MainActivity extends Activity {
         status.setText("Bluetooth permission: " + (hasBluetooth() ? "yes" : "NO")
                 + "\nRing service (Accessibility): " + (core.accessibilityConnected ? "on" : "OFF")
                 + "\nBackground service: " + (core.serviceRunning ? "running" : "not running")
-                + "\nLocked/screen-off mode: " + (core.screenOffActive() ? "active" : "off")
+                + "\nLocked-phone mode: " + core.lockedModeState()
+                + "\nRing touch mode: " + core.ringModeText()
                 + "\nGlasses link: " + core.hid.state
                 + "\nReady to send: " + (core.hid.isReady() ? "yes" : "no")
                 + "\nLast ring key: " + core.lastKey

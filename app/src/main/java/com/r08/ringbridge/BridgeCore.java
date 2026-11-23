@@ -17,7 +17,8 @@ import java.util.Date;
 import java.util.Locale;
 
 /** App-wide singleton: ring events -> gestures -> actions -> HID keyboard reports to the glasses. */
-final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink, GestureRecognizer.Config {
+final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink, GestureRecognizer.Config,
+        RingConfigurator.Listener {
 
     private static BridgeCore instance;
 
@@ -31,6 +32,8 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
     private final GestureRecognizer recognizer;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final MediaKeyCatcher mediaKeys;
+    private final RingConfigurator ringConfig;
+    volatile int ringMode = -1; // last touch mode read from the ring, -1 = unknown
     private final PowerManager.WakeLock wakeLock;
 
     volatile boolean accessibilityConnected;
@@ -46,6 +49,7 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
         hid = new HidPeripheral(app, this, prefs);
         recognizer = new GestureRecognizer(handler, this, this);
         mediaKeys = new MediaKeyCatcher(app, this, handler);
+        ringConfig = new RingConfigurator(app, handler, this);
         PowerManager pm = (PowerManager) app.getSystemService(Context.POWER_SERVICE);
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RingBridge:gesture");
         wakeLock.setReferenceCounted(false);
@@ -59,9 +63,11 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
                 }
                 boolean off = Intent.ACTION_SCREEN_OFF.equals(intent.getAction());
                 log(off ? "screen off" : "screen on");
-                if (off && screenOffMode() && (accessibilityConnected || serviceRunning)) {
+                if (off) {
                     wakeLock.acquire(2000); // let the media-button claim finish
-                    mediaKeys.enable();
+                    mediaKeys.onScreenOff();
+                } else {
+                    mediaKeys.onScreenOn();
                 }
             }
         };
@@ -125,7 +131,11 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
         else mediaKeys.disable();
     }
 
-    boolean screenOffActive() { return mediaKeys.isEnabled(); }
+    /** "off", "on (waiting for screen off)" or "on (holding media buttons)". */
+    String lockedModeState() {
+        if (!mediaKeys.isEnabled()) return "off";
+        return mediaKeys.isHolding() ? "on (holding media buttons)" : "on (waiting for screen off)";
+    }
 
     /** Called when the Accessibility service starts or stops. */
     void onServiceState(boolean connected) {
@@ -228,6 +238,28 @@ final class BridgeCore implements HidPeripheral.Listener, GestureRecognizer.Sink
     @Override public void onHidStateChanged() { notifyUi(); }
 
     @Override public void onHidLog(String message) { log(message); }
+
+    // ------------------------------------------------------------------ ring touch mode
+
+    void setRingMusicMode() { ringConfig.setMode(RingConfigurator.MODE_MUSIC, ringFilter()); notifyUi(); }
+
+    void readRingMode() { ringConfig.readMode(ringFilter()); notifyUi(); }
+
+    boolean ringConfigBusy() { return ringConfig.isBusy(); }
+
+    String ringModeText() {
+        if (ringConfig.isBusy()) return "working...";
+        if (ringMode < 0) return "unknown (tap \"Read ring mode\")";
+        if (ringMode == RingConfigurator.MODE_MUSIC) return "Music (1) - right mode for the bridge";
+        return "mode " + ringMode + " - not Music: tap \"Ring -> Music mode\"";
+    }
+
+    @Override public void onRingLog(String message) { log("ring: " + message); }
+
+    @Override public void onRingMode(int appType) {
+        ringMode = appType;
+        notifyUi();
+    }
 
     /** Event log shown in the app (newest first), for checking what happens while locked. */
     void log(String message) {
