@@ -146,7 +146,7 @@ public class MainActivity extends Activity {
 
         header("Timing and ring");
         numberSetting("Tap window (ms) - max gap between taps of a multi-tap", "window_ms", 350);
-        numberSetting("Combo buffer (ms) - how long a tap waits for a slide (tap then slide), and a slide for a tap", "combo_ms", 900);
+        numberSetting("Combo buffer (ms) - how long a tap waits for a slide (tap then slide), and a slide for a tap", "combo_ms", 500);
         textSetting("Ring device name contains", "ring_filter", "R08");
 
         header("Event log (newest first)");

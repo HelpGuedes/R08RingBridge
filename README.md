@@ -1,17 +1,34 @@
 # R08 Ring Bridge (Android)
+![An Amazing Cover Photo](./imgs/sh1t-c0ver.webp)
+Smartglasses without an additional interface aren't smart. A cheap wearable ring can fix this.
 
-Use a YaWell/Colmi **R08** smart ring as a controller for **MemoMind One** glasses, with
-multi-tap gestures (double, triple, quadruple tap) that the glasses cannot recognize on their own.
+This project tries to reduce the friction of these new wearable face screens and user interaction. The ring captures touch inputs and mimics the glasses' button commands.
 
+Hardware required:
+- YaWell/Colmi **R08** Smart Ring
+- **MemoMind One** Smart Glasses
+
+The smart ring acts as a controller for glasses, with multi-tap gestures (double, triple, quadruple tap) and scroll. At the date of writing this document KiwiWear is the only smart ring ready product for the MemoMind ecosystem. That device costs around $300, whereas this Colmi ring implementation delivers part of the same functionality for a tenth of the price at just $30.
+The caveat is that the ring can't connect directly to the glasses without custom firmware, so we use a phone as a Bluetooth bridge between devices.
+
+Project Diagram:
+```mermaid
+flowchart LR
+    R["R08 ring<br/>(Music touch mode)"]
+    subgraph P["Android phone: R08 Ring Bridge app"]
+        A["Accessibility service<br/>(screen on, ring keys only)"]
+        S["Media session<br/>(screen off / locked)"]
+        G["Gesture recognizer<br/>(1-4 taps, slides, combos)"]
+        K["BLE HID keyboard<br/>(one 2-byte report)"]
+        A --> G
+        S --> G
+        G -- "one key per gesture" --> K
+    end
+    M["MemoMind One<br/>(maps keys to actions)"]
+    R -- "Bluetooth HID<br/>media keys" --> A
+    R -. "phone locked" .-> S
+    K -- "Bluetooth HID (HOGP)" --> M
 ```
-R08 ring --(Bluetooth, Music mode)--> Android phone --(Bluetooth HID keyboard)--> MemoMind One
-                                      R08 Ring Bridge app:
-                                      reads the ring, counts taps, sends one key per gesture
-```
-
-The ring only sends single events (one tap, one slide). The glasses map one input to one
-action and cannot count taps. This app counts them on the phone and sends the glasses a
-different keyboard key for each gesture.
 
 ## How it fits together
 
@@ -25,29 +42,70 @@ There are two layers:
 | Ring gesture | Key the bridge sends | Glasses without any mapping |
 |---|---|---|
 | Slide up / down | Up / Down arrow | Up / Down |
-| 1 tap | Enter | Single click |
-| 2 taps | Next track (media key) | Next track (re-map it in MemoMind, e.g. to Double click) |
+| 1 tap | (nothing) | - |
+| 2 taps | Enter | Single click |
 | 3 taps | Escape | Back |
-| 4 taps | Pause/Resume (media key) | Pause/Resume (re-map it, e.g. to Open AI chat) |
-| Tap + slide, slide + tap | (unassigned) | - |
+| 4 taps | Pause/Resume (media key) | nothing (see "Keys the bridge can send") |
+| Tap, then slide up / down | Left / Right arrow | Left / Right |
+| Slide up, then tap | Next track (media key) | nothing (see "Keys the bridge can send") |
+| Slide down, then tap | Previous track (media key) | nothing (see "Keys the bridge can send") |
 
-The bridge only offers keys the glasses firmware recognizes, so every one of them can be recorded in
-the MemoMind app and given any "AI glasses action" (Single/Double click, Back, Open AI chat, Open
-quick menu, Turn off screen, ...):
+Timing defaults: tap window **350 ms**, combo buffer **500 ms**. Because "slide, then tap" gestures are
+assigned, a plain slide waits up to the combo buffer (500 ms) for a possible tap before it fires.
 
-- keyboard: Up, Down, Left, Right, Enter (single press), Escape (back)
-- media keys: Next track, Previous track, Pause/Resume, Mute, Volume up, Volume down
+Every gesture can be reassigned in the bridge app (Gesture → glasses action). Gestures you leave
+unassigned add no delay to the others.
 
-All of them live in **one** HID report (byte 0 = keyboard keys, byte 1 = media keys). A second HID
-report broke the connection with the glasses in earlier versions, so don't add one.
+### Keys the bridge can send (HID reference)
+
+Each action is one **press** (the report bytes below) followed about 90 ms later by a **release**
+(`00 00`). The glasses receive the 2-byte input report (Report ID 1) as a notification on the
+Report characteristic `0x2A4D`. Byte 0 holds keyboard keys, byte 1 holds media keys.
+
+| Bridge action | Report bytes (press) | HID page / usage (hex) | Input-map JSON (decimal) | Glasses by default | Recordable in MemoMind |
+|---|---|---|---|---|---|
+| Up | `01 00` | 0x07 / 0x52 Up Arrow | `"page":7,"usage":82` | UP | yes |
+| Down | `02 00` | 0x07 / 0x51 Down Arrow | `"page":7,"usage":81` | DOWN | yes |
+| Left | `04 00` | 0x07 / 0x50 Left Arrow | `"page":7,"usage":80` | LEFT | yes |
+| Right | `08 00` | 0x07 / 0x4F Right Arrow | `"page":7,"usage":79` | RIGHT | yes |
+| Single press (Enter) | `10 00` | 0x07 / 0x28 Enter | `"page":7,"usage":40` | single press | yes |
+| Back (Escape) | `20 00` | 0x07 / 0x29 Escape | `"page":7,"usage":41` | BACK | yes |
+| Next track | `00 01` | 0x0C / 0xB5 Scan Next | `"page":12,"usage":181` | nothing | no |
+| Previous track | `00 02` | 0x0C / 0xB6 Scan Previous | `"page":12,"usage":182` | nothing | no |
+| Pause/Resume | `00 04` | 0x0C / 0xCD Play/Pause | `"page":12,"usage":205` | nothing | no |
+| Mute | `00 08` | 0x0C / 0xE2 Mute | `"page":12,"usage":226` | nothing | no |
+| Volume up | `00 10` | 0x0C / 0xE9 Volume Increment | `"page":12,"usage":233` | nothing | no |
+| Volume down | `00 20` | 0x0C / 0xEA Volume Decrement | `"page":12,"usage":234` | nothing | no |
+| *(release, after every press)* | `00 00` | | | | |
+
+Two more keys exist in the layout but have no action in the app:
+
+| Key | Report bytes | HID page / usage | Glasses by default |
+|---|---|---|---|
+| Keypad Enter | `40 00` | 0x07 / 0x58 (decimal 88) | single press |
+| Space | `80 00` | 0x07 / 0x2C (decimal 44) | nothing |
+
+What this means:
+
+- The **first six** are the only keys the glasses understand on their own, so they're the only ones
+  the MemoMind app can record and give an "AI glasses action" (Single/Double click, Back, Open AI chat,
+  Open quick menu, Turn off screen, ...).
+- The **media keys** reach the glasses but do nothing by default: inside the bridge's keyboard report
+  the firmware doesn't recognize them. An **input map sent from the PC** (see "Advanced") can still
+  target them by page/usage, e.g. `{"type":"usage_key","page":12,"usage":205,"key":59}` turns
+  Pause/Resume into the glasses' long press (`KEY_LONG`, 59 = 0x3B). Whether the glasses expose them
+  for mapping is still to be confirmed with `mm_hogp.py … listen` (expect `"page":12,"usage":205`
+  when pressing the Play test button).
+- Everything stays in **one** HID report. A second HID report broke the connection with the glasses
+  in earlier versions, so don't add one.
 
 ### Example mapping (the setup this project was built with)
 
 | Ring | Mapped in the MemoMind app to | Result on the glasses |
 |---|---|---|
 | Slide up / down | (built-in, no mapping needed) | Move up / down |
-| **Double tap** | Double press | Enter / open menu |
-| **Triple tap** | Long press | Back / exit |
+| **Double tap** (bridge: Enter) | Double click | Enter / open menu |
+| **Triple tap** (bridge: Escape) | Back | Back / exit |
 
 ## Setup
 
@@ -159,7 +217,7 @@ you prefer the old behavior (ring works only with the screen on).
 | Setting | Default | What it does |
 |---|---|---|
 | Tap window | 350 ms | Maximum gap between taps of one multi-tap |
-| Combo buffer | 900 ms | How long a tap waits for a slide ("tap, then slide") and a slide for a tap ("slide, then tap"). Only used when such a combo is assigned |
+| Combo buffer | 500 ms | How long a tap waits for a slide ("tap, then slide") and a slide for a tap ("slide, then tap"). Only used when such a combo is assigned |
 | Long-press hold | 2100 ms | How long held actions keep the key down |
 | Ring device name contains | `R08` | Only input devices with this in their name are captured; everything else passes through |
 | Work while the phone is locked | on | Takes media buttons while the screen is off (see above) |
@@ -190,11 +248,29 @@ you prefer the old behavior (ring works only with the screen on).
 
 ## Advanced: input map without the MemoMind app
 
-`r08_bridge_inputmap.json` maps Keypad Enter → DOUBLE (58) and Space → SELECT (4, so a held Space
-becomes a long press). It can be sent from a PC with the GM/SPP tools from this project
-(`mm_hogp.py <glasses> --channel 1 map r08_bridge_inputmap.json`), with the MemoMind app
-force-stopped. The MemoMind app may replace it when it reconnects, so recording the mapping in the
-MemoMind app (step 5) is the recommended way.
+The glasses' input map can map **any** key by HID page/usage, including the media keys the MemoMind
+app can't record. It's sent from a PC with the GM/SPP tool from this project, with the MemoMind app
+force-stopped and the phone's Bluetooth on:
+
+```
+py -u mm_hogp.py <GLASSES_MAC> --channel 1 map my_map.json listen
+```
+
+Example: 2 taps (Enter) → double click, 4 taps (Pause/Resume, `00 04`) → long press:
+
+```json
+{"version":1,"rules":[
+  {"type":"usage_key","page":7,"usage":40,"key":58},
+  {"type":"usage_key","page":12,"usage":205,"key":59}
+]}
+```
+
+- A map **replaces the whole table**, including what you recorded in the MemoMind app, so include
+  those mappings in it.
+- Useful glasses keys: 4 SELECT (short = single, held = long), 5 BACK, 7 MENU, 58 DOUBLE,
+  59 LONG, 60 AI_TRIGGER. The full list is in the replication guide.
+- The MemoMind app may replace the map when it reconnects or when you edit mappings there.
+  Recording in the MemoMind app (step 5) remains the main way.
 
 ## Build from source
 
